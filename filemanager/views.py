@@ -1,3 +1,5 @@
+from __future__ import with_statement
+from __future__ import absolute_import
 from io import BytesIO
 import json
 import mimetypes
@@ -19,21 +21,22 @@ from django.views.generic import View
 from PIL import Image
 
 from . import settings
+from io import open
 
 KB = 1024
 
 ActionChoices = (
-    ('upload', 'upload'),
-    ('rename', 'rename'),
-    ('delete', 'delete'),
-    ('add', 'add'),
-    ('move', 'move'),
-    ('copy', 'copy'),
+    (u'upload', u'upload'),
+    (u'rename', u'rename'),
+    (u'delete', u'delete'),
+    (u'add', u'add'),
+    (u'move', u'move'),
+    (u'copy', u'copy'),
 )
 
 
 def is_valid_filename(name):
-    return not re.match(r'[^-\w\d \./]', name)
+    return not re.match(ur'[^-\w\d \./]', name)
 
 
 def is_valid_dirname(name):
@@ -49,11 +52,11 @@ class FileManagerForm(forms.Form):
     file_or_dir = forms.CharField(max_length=4)
 
     def clean_path(self):
-        return self.cleaned_data['path'].lstrip('/')
+        return self.cleaned_data[u'path'].lstrip(u'/')
 
 
 class FileManager(View):
-    """
+    u"""
     maxspace,maxfilesize in KB
     """
     basepath = None
@@ -63,32 +66,32 @@ class FileManager(View):
     extensions = []
     public_url_base = None
 
-    def dispatch(self, request, path):
+    def dispatch(self, *args, **kwargs):
         self.idee = 0
-
-        if 'download' in request.GET:
-            return self.download(path, request.GET['download'])
-        if path:
-            return self.media(path)
+        import pdb; pdb.set_trace()
+        if u'download' in self.request.GET:
+            return self.download(None, self.request.GET[u'download'])
+        if kwargs.get('path'):
+            return self.media(kwargs['path'])
         messages = []
-        self.current_path = '/'
+        self.current_path = u'/'
         self.current_id = 1
-        if request.method == 'POST':
-            form = FileManagerForm(request.POST, request.FILES)
+        if self.request.method == u'POST':
+            form = FileManagerForm(self.request.POST, self.request.FILES)
             if form.is_valid():
-                messages = self.handle_form(form, request.FILES)
+                messages = self.handle_form(form, self.request.FILES)
         if settings.FILEMANAGER_CHECK_SPACE:
             space_consumed = self.get_size(self.basepath)
         else:
             space_consumed = 0
-        return render(request, 'filemanager/index.html', {
-            'dir_structure': json.dumps(self.directory_structure()),
-            'messages': [str(m) for m in messages],
-            'current_id': self.current_id,
-            'public_url_base': self.public_url_base,
-            'space_consumed': space_consumed,
-            'max_space': self.maxspace,
-            'show_space': settings.FILEMANAGER_SHOW_SPACE,
+        return render(self.request, u'filemanager/index.html', {
+            u'dir_structure': json.dumps(self.directory_structure()),
+            u'messages': [unicode(m) for m in messages],
+            u'current_id': self.current_id,
+            u'public_url_base': self.public_url_base,
+            u'space_consumed': space_consumed,
+            u'max_space': self.maxspace,
+            u'show_space': settings.FILEMANAGER_SHOW_SPACE,
         })
 
     # XXX Replace with with using storage API
@@ -96,10 +99,10 @@ class FileManager(View):
         if os.path.exists(safe_join(folder, filename)):
             root, ext = os.path.splitext(filename)
             if not ext:
-                fmt = '{root}.{i}'
+                fmt = u'{root}.{i}'
             else:
-                fmt = '{root}.{i}.{ext}'
-            for i in range(1000):
+                fmt = u'{root}.{i}.{ext}'
+            for i in xrange(1000):
                 filename = fmt.format(root=root, i=i, ext=ext)
                 if not os.path.exists(safe_join(folder, filename)):
                     break
@@ -116,52 +119,64 @@ class FileManager(View):
         return self.idee
 
     def handle_form(self, form, files):
-        action = form.cleaned_data['action']
-        file_or_dir = form.cleaned_data['file_or_dir']
-        self.current_path = form.cleaned_data['current_path']
+        action = form.cleaned_data[u'action']
+        file_or_dir = form.cleaned_data[u'file_or_dir']
+        self.current_path = form.cleaned_data[u'current_path']
 
         try:
-            handler = getattr(self, 'do_{}_{}'.format(file_or_dir, action))
+            handler = getattr(self, u'do_{}_{}'.format(file_or_dir, action))
         except AttributeError:
-            return ['Action not supported!']
+            return [u'Action not supported!']
         else:
             return handler(files=files, **form.cleaned_data)
 
-    def do_file_upload(self, *, path=None, files=None, **kwargs):
+    def do_file_upload(self, **kwargs):
+        if 'files' in kwargs: files = kwargs['files']; del kwargs['files']
+        else: files = None
+        if 'path' in kwargs: path = kwargs['path']; del kwargs['path']
+        else: path = None
         messages = []
-        for f in files.getlist('ufile'):
+        for f in files.getlist(u'ufile'):
             root, ext = os.path.splitext(f.name)
             if not is_valid_filename(f.name):
-                messages.append("File name is not valid : " + f.name)
+                messages.append(u"File name is not valid : " + f.name)
             elif f.size > self.maxfilesize * KB:
-                messages.append("File size exceeded {} KB : {}".format(self.maxfilesize, f.name))
+                messages.append(u"File size exceeded {} KB : {}".format(self.maxfilesize, f.name))
             elif settings.FILEMANAGER_CHECK_SPACE and (self.get_size(self.basepath) + f.size) > self.maxspace * KB:
-                messages.append("Total Space size exceeded {} KB: {}".format(self.maxspace, f.name))
-            elif ext and self.extensions and ext.lower().lstrip('.') not in self.extensions:
-                messages.append("File extension not allowed ({}) : {}".format(ext, f.name))
+                messages.append(u"Total Space size exceeded {} KB: {}".format(self.maxspace, f.name))
+            elif ext and self.extensions and ext.lower().lstrip(u'.') not in self.extensions:
+                messages.append(u"File extension not allowed ({}) : {}".format(ext, f.name))
             elif not ext and self.extensions and root not in self.extensions:
-                messages.append("No file extension in uploaded file : " + f.name)
+                messages.append(u"No file extension in uploaded file : " + f.name)
             else:
                 full_path = safe_join(self.basepath, path)
                 filepath = safe_join(full_path, self.rename_if_exists(full_path, f.name))
-                with open(filepath, 'wb') as dest:
+                with open(filepath, u'wb') as dest:
                     for chunk in f.chunks():
                         dest.write(chunk)
                 f.close()
         if not messages:
-            messages.append('All files uploaded successfully')
+            messages.append(u'All files uploaded successfully')
         return messages
 
-    def do_dir_rename(self, *, path=None, name=None, **kwargs):
+    def do_dir_rename(self, **kwargs):
+        if 'name' in kwargs: name = kwargs['name']; del kwargs['name']
+        else: name = None
+        if 'path' in kwargs: path = kwargs['path']; del kwargs['path']
+        else: path = None
         path, oldname = os.path.split(path)
         try:
             os.chdir(safe_join(self.basepath, path))
             os.rename(oldname, name)
         except:
-            return ["Folder couldn't renamed to {}".format(name)]
-        return ['Folder renamed successfully from {} to {}'.format(oldname, name)]
+            return [u"Folder couldn't renamed to {}".format(name)]
+        return [u'Folder renamed successfully from {} to {}'.format(oldname, name)]
 
-    def do_file_rename(self, *, path=None, name=None, **kwargs):
+    def do_file_rename(self, **kwargs):
+        if 'name' in kwargs: name = kwargs['name']; del kwargs['name']
+        else: name = None
+        if 'path' in kwargs: path = kwargs['path']; del kwargs['path']
+        else: path = None
         path, oldname = os.path.split(path)
         _, old_ext = os.path.splitext(oldname)
         _, new_ext = os.path.splitext(name)
@@ -170,17 +185,19 @@ class FileManager(View):
                 os.chdir(safe_join(self.basepath, path))
                 os.rename(oldname, name)
             except:
-                return ["File couldn't be renamed to {}".format(name)]
-            return ['File renamed successfully from {} to {}'.format(oldname, name)]
+                return [u"File couldn't be renamed to {}".format(name)]
+            return [u'File renamed successfully from {} to {}'.format(oldname, name)]
         else:
             if old_ext:
-                return ['File extension should be same : .{}'.format(old_ext)]
+                return [u'File extension should be same : .{}'.format(old_ext)]
             else:
-                return ["New file extension didn't match with old file extension"]
+                return [u"New file extension didn't match with old file extension"]
 
-    def do_dir_delete(self, *, path=None, **kwargs):
-        if path == '':
-            return ["root folder can't be deleted"]
+    def do_dir_delete(self, **kwargs):
+        if 'path' in kwargs: path = kwargs['path']; del kwargs['path']
+        else: path = None
+        if path == u'':
+            return [u"root folder can't be deleted"]
         else:
             full_path = safe_join(self.basepath, path)
             base_path, name = os.path.split(full_path)
@@ -188,31 +205,37 @@ class FileManager(View):
                 os.chdir(base_path)
                 shutil.rmtree(name)
             except:
-                return ["Folder couldn't deleted : {}".format(name)]
-            return ['Folder deleted successfully : {}'.format(name)]
+                return [u"Folder couldn't deleted : {}".format(name)]
+            return [u'Folder deleted successfully : {}'.format(name)]
 
-    def do_file_delete(self, *, path=None, **kwargs):
-        if path == '':
-            return ["root folder can't be deleted"]
+    def do_file_delete(self, **kwargs):
+        if 'path' in kwargs: path = kwargs['path']; del kwargs['path']
+        else: path = None
+        if path == u'':
+            return [u"root folder can't be deleted"]
         path, name = os.path.split(path)
         try:
             os.chdir(safe_join(self.basepath, path))
             os.remove(name)
         except:
-            return ["File couldn't deleted : {}".format(name)]
-        return ['File deleted successfully : {}'.format(name)]
+            return [u"File couldn't deleted : {}".format(name)]
+        return [u'File deleted successfully : {}'.format(name)]
 
-    def do_dir_add(self, *, path=None, name=None, **kwargs):
+    def do_dir_add(self, **kwargs):
+        if 'name' in kwargs: name = kwargs['name']; del kwargs['name']
+        else: name = None
+        if 'path' in kwargs: path = kwargs['path']; del kwargs['path']
+        else: path = None
         os.chdir(self.basepath)
-        no_of_folders = len(list(os.walk('.')))
+        no_of_folders = len(list(os.walk(u'.')))
         if no_of_folders >= self.maxfolders:
-            return ["Folder couldn' be created because maximum number of folders exceeded : {}".format(self.maxfolders)]
+            return [u"Folder couldn' be created because maximum number of folders exceeded : {}".format(self.maxfolders)]
         try:
             os.chdir(safe_join(self.basepath, path))
             os.mkdir(name)
         except:
-            return ["Folder couldn't be created : {}".format(name)]
-        return ['Folder created successfully : {}'.format(name)]
+            return [u"Folder couldn't be created : {}".format(name)]
+        return [u'Folder created successfully : {}'.format(name)]
 
     def do_file_move(self, **kwargs):
         return self._more_or_copy(method=shutil.move, **kwargs)
@@ -226,58 +249,61 @@ class FileManager(View):
     def do_dir_copy(self, **kwargs):
         return self._move_or_copy(method=shutil.copytree, **kwargs)
 
-    def _move_or_copy(self, *, method=None, path=None, **kwargs):
+    def _move_or_copy(self, **kwargs):
         # from path to current_path
+        if 'path' in kwargs: path = kwargs['path']; del kwargs['path']
+        else: path = None
+        if 'method' in kwargs: method = kwargs['method']; del kwargs['method']
+        else: method = None
         if self.current_path.find(path) == 0:
-            return ['Cannot move/copy to a child folder']
+            return [u'Cannot move/copy to a child folder']
         path = os.path.normpath(path)  # strip trailing slash if any
         if os.path.exists(safe_join(self.basepath, self.current_path, os.path.basename(path))):
-            return ['ERROR: A file/folder with this name already exists in the destination folder.']
+            return [u'ERROR: A file/folder with this name already exists in the destination folder.']
         try:
             method(safe_join(self.basepath, path),
                    safe_join(self.basepath, self.current_path, os.path.basename(path)))
         except:
-            return ["File/folder couldn't be moved/copied."]
+            return [u"File/folder couldn't be moved/copied."]
 
         return []
 
     def directory_structure(self):
         self.idee = 0
         dir_structure = {
-            '': {
-                'id': self.next_id(),
-                'open': True,
-                'dirs': {},
-                'files': [],
+            u'': {
+                u'id': self.next_id(),
+                u'open': True,
+                u'dirs': {},
+                u'files': [],
             },
         }
         os.chdir(self.basepath)
-        for directory, directories, files in os.walk('.'):
-            directory_list = directory[1:].split('/')
+        for directory, directories, files in os.walk(u'.'):
+            directory_list = directory[1:].split(u'/')
             current_dir = None
             nextdirs = dir_structure
             for d in directory_list:
                 current_dir = nextdirs[d]
-                nextdirs = current_dir['dirs']
-            if directory[1:] + '/' == self.current_path:
-                self.current_id = current_dir['id']
-            current_dir['dirs'].update({
-                d: {
-                    'id': self.next_id(),
-                    'open': False,
-                    'dirs': {},
-                    'files': [],
-                }
-                for d in directories
-            })
-            current_dir['files'] = files
+                nextdirs = current_dir[u'dirs']
+            if directory[1:] + u'/' == self.current_path:
+                self.current_id = current_dir[u'id']
+            current_dir[u'dirs'].update(dict((
+                d, {
+                    u'id': self.next_id(),
+                    u'open': False,
+                    u'dirs': {},
+                    u'files': [],
+                })
+                for d in directories))
+            current_dir[u'files'] = files
         return dir_structure
 
     def media(self, path):
         filename = os.path.basename(path)
         root, ext = os.path.splitext(filename)
         mimetype, _ = mimetypes.guess_type(filename)
-        if mimetype and mimetype.startswith('image/'):
+        if mimetype and mimetype.startswith(u'image/'):
             if not path.startswith(settings.THUMBNAIL_PREFIX):
                 # Generate target filename
                 target_name = os.path.join(settings.THUMBNAIL_PREFIX, path)
@@ -292,7 +318,7 @@ class FileManager(View):
                     img = img.resize((w, h), Image.ANTIALIAS)
                     ifile = BytesIO()
                     # Thanks, SmileyChris
-                    fmt = Image.EXTENSION.get(ext.lower(), 'JPEG')
+                    fmt = Image.EXTENSION.get(ext.lower(), u'JPEG')
                     img.save(ifile, fmt)
                     default_storage.save(target_name, File(ifile))
                 url = urljoin(settings.settings.MEDIA_URL, default_storage.url(target_name))
@@ -301,25 +327,25 @@ class FileManager(View):
         else:
             # Use generic image for file type, if we have one
             try:
-                url = static('filemanager/images/icons/{}.png'.format(ext.strip('.')))
+                url = static(u'filemanager/images/icons/{}.png'.format(ext.strip(u'.')))
             except ValueError:
-                url = static('filemanager/images/icons/default.png')
+                url = static(u'filemanager/images/icons/default.png')
         return HttpResponseRedirect(url)
 
     def download(self, path, file_or_dir):
         full_path = safe_join(self.basepath, path)
         base_name = os.path.basename(path)
-        if not re.match(r'[\w\d_ -/]*', path).group(0) == path:
-            return HttpResponse('Invalid path')
-        if file_or_dir == 'file':
+        if not re.match(ur'[\w\d_ -/]*', path).group(0) == path:
+            return HttpResponse(u'Invalid path')
+        if file_or_dir == u'file':
             response = HttpResponse(open(full_path), content_type=mimetypes.guess_type(full_path)[0])
-            response['Content-Length'] = os.path.getsize(full_path)
-            response['Content-Disposition'] = 'attachment; filename={}'.format(base_name)
+            response[u'Content-Length'] = os.path.getsize(full_path)
+            response[u'Content-Disposition'] = u'attachment; filename={}'.format(base_name)
             return response
-        elif file_or_dir == 'dir':
-            response = HttpResponse(content_type='application/x-gzip')
-            response['Content-Disposition'] = 'attachment; filename={}.tar.gz'.format(base_name)
-            tarred = tarfile.open(fileobj=response, mode='w:gz')
+        elif file_or_dir == u'dir':
+            response = HttpResponse(content_type=u'application/x-gzip')
+            response[u'Content-Disposition'] = u'attachment; filename={}.tar.gz'.format(base_name)
+            tarred = tarfile.open(fileobj=response, mode=u'w:gz')
             tarred.add(full_path, arcname=base_name)
             tarred.close()
             return response
